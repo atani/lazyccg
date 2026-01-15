@@ -679,10 +679,16 @@ func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([
 				currentHash := strings.Join(hashLines, "\n")
 				newHashes[win.ID] = currentHash
 
-				// Determine status: if output changed, it's RUNNING
+				// Determine status
 				var status string
 				prevHash, hasPrev := prevHashes[win.ID]
-				if hasPrev && currentHash != prevHash {
+				outputChanged := hasPrev && currentHash != prevHash
+
+				// Check for real-time RUNNING indicator
+				recentText := strings.ToLower(strings.Join(hashLines, " "))
+				hasActiveIndicator := strings.Contains(recentText, "ctrl+c to interrupt")
+
+				if outputChanged || hasActiveIndicator {
 					status = "RUNNING"
 				} else {
 					status = inferStatus(lines)
