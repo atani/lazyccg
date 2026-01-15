@@ -887,19 +887,29 @@ func inferStatus(lines []string) string {
 		return "IDLE"
 	}
 
-	// 最終行をチェック（プロンプト待ち検出）
+	// 最終数行をチェック（プロンプト待ち検出）
 	lastLine := strings.TrimSpace(lines[len(lines)-1])
 	lastLineLower := strings.ToLower(lastLine)
 
-	// プロンプト待ちパターン（最終行が入力待ちの場合）
-	if strings.HasPrefix(lastLine, "> ") || // Codex, Claude等
+	// 直近数行も確認（Claude Codeは複数行でプロンプトを表示することがある）
+	recentLines := lines
+	if len(lines) > 5 {
+		recentLines = lines[len(lines)-5:]
+	}
+	recentText := strings.ToLower(strings.Join(recentLines, " "))
+
+	// プロンプト待ちパターン
+	if lastLine == ">" || lastLine == ">>" || // Claude Code プロンプト
+		strings.HasPrefix(lastLine, "> ") || // Codex, Claude等
 		strings.HasPrefix(lastLine, "$ ") || // シェルプロンプト
 		strings.HasPrefix(lastLine, "% ") || // zshプロンプト
-		strings.HasSuffix(lastLine, "> ") ||
+		strings.HasSuffix(lastLine, ">") || // 末尾が>
 		strings.HasSuffix(lastLine, "$ ") ||
 		strings.HasSuffix(lastLine, "% ") ||
 		strings.Contains(lastLineLower, "context left") || // Codex特有
-		strings.Contains(lastLineLower, "? for shortcuts") { // Codex特有
+		strings.Contains(lastLineLower, "? for shortcuts") || // Codex特有
+		strings.Contains(recentText, "accept edits") || // Claude Code編集確認待ち
+		strings.Contains(recentText, "crunched for") { // Claude Code完了
 		return "IDLE"
 	}
 
