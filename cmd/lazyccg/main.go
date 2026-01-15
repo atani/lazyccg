@@ -363,17 +363,16 @@ func (m model) View() string {
 }
 
 func (m model) renderSessionsPanel(width, innerHeight int) string {
-	// タイトルを作成
-	title := titleStyle.Render(" Sessions ")
-
 	// 同じタブIDが複数あるかチェック
 	tabCount := make(map[int]int)
 	for _, s := range m.sessions {
 		tabCount[s.TabID]++
 	}
 
-	// コンテンツを作成
+	// コンテンツを作成（タイトル行を含む）
 	var lines []string
+	lines = append(lines, titleStyle.Render("Sessions"))
+
 	if len(m.sessions) == 0 {
 		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
 	} else {
@@ -421,26 +420,23 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 	}
 
 	// ボーダー付きパネルを作成
-	panel := activeBorderStyle.
+	return activeBorderStyle.
 		Width(width - 2).
 		Height(innerHeight).
 		Render(content)
-
-	// タイトルをボーダーに埋め込む
-	return embedTitle(panel, title)
 }
 
 func (m model) renderStatusPanel(width, innerHeight int) string {
-	title := titleStyle.Render(" Status ")
-
 	// ステータス集計
 	statusCount := make(map[string]int)
 	for _, s := range m.sessions {
 		statusCount[s.Status]++
 	}
 
-	// 縦にステータスを表示
+	// 縦にステータスを表示（タイトル行を含む）
 	var lines []string
+	lines = append(lines, titleStyle.Render("Status"))
+
 	if c := statusCount["RUNNING"]; c > 0 {
 		lines = append(lines, " "+statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
 	}
@@ -453,7 +449,7 @@ func (m model) renderStatusPanel(width, innerHeight int) string {
 	if c := statusCount["DONE"]; c > 0 {
 		lines = append(lines, " "+statusDone.Render(fmt.Sprintf("DONE: %d", c)))
 	}
-	if len(lines) == 0 {
+	if len(lines) == 1 {
 		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
 	}
 
@@ -465,61 +461,48 @@ func (m model) renderStatusPanel(width, innerHeight int) string {
 		content += strings.Repeat("\n", innerHeight-lineCount)
 	}
 
-	panel := borderStyle.
+	return borderStyle.
 		Width(width - 2).
 		Height(innerHeight).
 		Render(content)
-
-	return embedTitle(panel, title)
 }
 
 func (m model) renderOutputPanel(width, innerHeight int) string {
-	title := titleStyle.Render(" Output ")
+	var lines []string
+	lines = append(lines, titleStyle.Render("Output"))
 
-	var content string
 	if len(m.sessions) == 0 || m.selected >= len(m.sessions) {
-		content = helpDescStyle.Render("  (no output)")
+		lines = append(lines, helpDescStyle.Render("  (no output)"))
 	} else {
 		logs := m.sessions[m.selected].Lines
 		if len(logs) == 0 {
-			content = helpDescStyle.Render("  (empty)")
+			lines = append(lines, helpDescStyle.Render("  (empty)"))
 		} else {
-			// 表示する行数を制限
-			displayLines := logs
-			if len(displayLines) > innerHeight {
-				displayLines = displayLines[len(displayLines)-innerHeight:]
+			// 表示する行数を制限（タイトル行分を引く）
+			maxLines := innerHeight - 1
+			if maxLines < 1 {
+				maxLines = 1
 			}
-			content = strings.Join(displayLines, "\n")
+			displayLines := logs
+			if len(displayLines) > maxLines {
+				displayLines = displayLines[len(displayLines)-maxLines:]
+			}
+			lines = append(lines, displayLines...)
 		}
 	}
 
-	panel := borderStyle.
+	content := strings.Join(lines, "\n")
+
+	// 高さを調整
+	lineCount := len(lines)
+	if lineCount < innerHeight {
+		content += strings.Repeat("\n", innerHeight-lineCount)
+	}
+
+	return borderStyle.
 		Width(width - 2).
 		Height(innerHeight).
 		Render(content)
-
-	return embedTitle(panel, title)
-}
-
-func embedTitle(panel, title string) string {
-	lines := strings.Split(panel, "\n")
-	if len(lines) == 0 {
-		return panel
-	}
-	// 最初の行にタイトルを埋め込む
-	firstLine := lines[0]
-	runes := []rune(firstLine)
-	titleRunes := []rune(title)
-
-	// タイトルを埋め込む位置（左から2文字目以降）
-	insertPos := 2
-	if len(runes) > insertPos+len(titleRunes) {
-		for i, r := range titleRunes {
-			runes[insertPos+i] = r
-		}
-		lines[0] = string(runes)
-	}
-	return strings.Join(lines, "\n")
 }
 
 func (m model) formatStatus(status string) string {
