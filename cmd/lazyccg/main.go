@@ -313,56 +313,34 @@ func (m model) View() string {
 		return ""
 	}
 
-	// レイアウト計算
-	helpHeight := 1
-	contentHeight := m.height - helpHeight
-	if contentHeight < 6 {
-		contentHeight = 6
-	}
-
+	// シンプルなレイアウト
 	leftWidth := m.width / 2
 	if leftWidth < 30 {
 		leftWidth = 30
 	}
-	rightWidth := m.width - leftWidth
-	if rightWidth < 10 {
-		rightWidth = 10
+	rightWidth := m.width - leftWidth - 2
+
+	maxSessionLines := m.height - 10
+	if maxSessionLines < 5 {
+		maxSessionLines = 5
+	}
+	maxOutputLines := m.height - 3
+	if maxOutputLines < 5 {
+		maxOutputLines = 5
 	}
 
-	// 左側: Sessions + Status を縦に並べる
-	statusPanelHeight := 6 // Status パネルの高さ（ボーダー含む）
-	sessionsPanelHeight := contentHeight - statusPanelHeight
-	if sessionsPanelHeight < 4 {
-		sessionsPanelHeight = 4
-	}
+	sessions := m.renderSessionsPanel(leftWidth, maxSessionLines)
+	status := m.renderStatusPanel(leftWidth)
+	output := m.renderOutputPanel(rightWidth, maxOutputLines)
 
-	sessionsInnerHeight := sessionsPanelHeight - 2
-	if sessionsInnerHeight < 1 {
-		sessionsInnerHeight = 1
-	}
-	statusInnerHeight := statusPanelHeight - 2
-	if statusInnerHeight < 1 {
-		statusInnerHeight = 1
-	}
-
-	// 右側: Output（全高さ）
-	outputInnerHeight := contentHeight - 2
-	if outputInnerHeight < 1 {
-		outputInnerHeight = 1
-	}
-
-	sessions := m.renderSessionsPanel(leftWidth, sessionsInnerHeight)
-	status := m.renderStatusPanel(leftWidth, statusInnerHeight)
-	output := m.renderOutputPanel(rightWidth, outputInnerHeight)
-
-	left := lipgloss.JoinVertical(lipgloss.Left, sessions, status)
-	content := lipgloss.JoinHorizontal(lipgloss.Top, left, output)
+	left := sessions + "\n" + status
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", output)
 	help := m.renderHelp(m.width)
 
 	return content + "\n" + help
 }
 
-func (m model) renderSessionsPanel(width, innerHeight int) string {
+func (m model) renderSessionsPanel(width, maxLines int) string {
 	// 同じタブIDが複数あるかチェック
 	tabCount := make(map[int]int)
 	for _, s := range m.sessions {
@@ -402,8 +380,9 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 			if i == m.selected {
 				// 幅に合わせてパディング
 				paddedLine := line
-				if len(line) < width-4 {
-					paddedLine = line + strings.Repeat(" ", width-4-len(line))
+				lineWidth := lipgloss.Width(line)
+				if lineWidth < width-2 {
+					paddedLine = line + strings.Repeat(" ", width-2-lineWidth)
 				}
 				line = selectedStyle.Render(paddedLine)
 			}
@@ -411,22 +390,15 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 		}
 	}
 
-	content := strings.Join(lines, "\n")
-
-	// 高さを調整
-	lineCount := len(lines)
-	if lineCount < innerHeight {
-		content += strings.Repeat("\n", innerHeight-lineCount)
+	// 最大行数に制限
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
 	}
 
-	// ボーダー付きパネルを作成
-	return activeBorderStyle.
-		Width(width - 2).
-		Height(innerHeight).
-		Render(content)
+	return strings.Join(lines, "\n")
 }
 
-func (m model) renderStatusPanel(width, innerHeight int) string {
+func (m model) renderStatusPanel(width int) string {
 	// ステータス集計
 	statusCount := make(map[string]int)
 	for _, s := range m.sessions {
@@ -453,21 +425,10 @@ func (m model) renderStatusPanel(width, innerHeight int) string {
 		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
 	}
 
-	content := strings.Join(lines, "\n")
-
-	// 高さを調整
-	lineCount := len(lines)
-	if lineCount < innerHeight {
-		content += strings.Repeat("\n", innerHeight-lineCount)
-	}
-
-	return borderStyle.
-		Width(width - 2).
-		Height(innerHeight).
-		Render(content)
+	return strings.Join(lines, "\n")
 }
 
-func (m model) renderOutputPanel(width, innerHeight int) string {
+func (m model) renderOutputPanel(width, maxLines int) string {
 	var lines []string
 	lines = append(lines, titleStyle.Render("Output"))
 
@@ -479,30 +440,24 @@ func (m model) renderOutputPanel(width, innerHeight int) string {
 			lines = append(lines, helpDescStyle.Render("  (empty)"))
 		} else {
 			// 表示する行数を制限（タイトル行分を引く）
-			maxLines := innerHeight - 1
-			if maxLines < 1 {
-				maxLines = 1
+			availableLines := maxLines - 1
+			if availableLines < 1 {
+				availableLines = 1
 			}
 			displayLines := logs
-			if len(displayLines) > maxLines {
-				displayLines = displayLines[len(displayLines)-maxLines:]
+			if len(displayLines) > availableLines {
+				displayLines = displayLines[len(displayLines)-availableLines:]
 			}
 			lines = append(lines, displayLines...)
 		}
 	}
 
-	content := strings.Join(lines, "\n")
-
-	// 高さを調整
-	lineCount := len(lines)
-	if lineCount < innerHeight {
-		content += strings.Repeat("\n", innerHeight-lineCount)
+	// 最大行数に制限
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
 	}
 
-	return borderStyle.
-		Width(width - 2).
-		Height(innerHeight).
-		Render(content)
+	return strings.Join(lines, "\n")
 }
 
 func (m model) formatStatus(status string) string {
