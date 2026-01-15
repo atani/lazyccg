@@ -355,8 +355,8 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 			ai := strings.ToUpper(s.AI)
 			status := m.formatStatus(s.Status)
 
-			// 行を構築
-			line := fmt.Sprintf(" %-7s %s  %s", ai, status, name)
+			// 行を構築: タブ名 (AI)  STATUS
+			line := fmt.Sprintf(" %s (%s)  %s", name, ai, status)
 
 			// 選択されている場合はハイライト
 			if i == m.selected {
