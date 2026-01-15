@@ -389,8 +389,11 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 				name = fmt.Sprintf("%s/%s", name, cwdBase)
 			}
 
-			// AI名とステータスをフォーマット
-			ai := strings.ToUpper(s.AI)
+			// タブ名を制限
+			name = truncateString(name, 20)
+
+			// AI名を2文字に略す
+			ai := shortAI(s.AI)
 			status := m.formatStatus(s.Status)
 
 			// 行を構築: タブ名 (AI)  STATUS
@@ -829,4 +832,31 @@ func inferStatus(lines []string) string {
 		return "DONE"
 	}
 	return "RUNNING"
+}
+
+func truncateString(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
+
+func shortAI(ai string) string {
+	switch strings.ToLower(ai) {
+	case "claude":
+		return "CL"
+	case "codex":
+		return "CO"
+	case "gemini":
+		return "GE"
+	default:
+		if len(ai) >= 2 {
+			return strings.ToUpper(ai[:2])
+		}
+		return strings.ToUpper(ai)
+	}
 }
