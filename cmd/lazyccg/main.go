@@ -36,14 +36,15 @@ var (
 )
 
 type session struct {
-	TabID    int
-	WindowID int
-	Title    string
-	AI       string
-	Status   string
-	Lines    []string
-	Updated  time.Time
-	Cwd      string
+	TabID      int
+	WindowID   int
+	Title      string
+	AI         string
+	Status     string
+	Lines      []string
+	Updated    time.Time
+	Cwd        string
+	OutputHash string // hash of output to detect changes
 }
 
 type model struct {
@@ -61,6 +62,7 @@ type model struct {
 	focusedPanel   int    // 0=Sessions, 1=Status
 	statusFilter   string // "" = no filter
 	statusSelected int
+	prevHashes     map[int]string // windowID -> previous output hash
 }
 
 type tickMsg time.Time
@@ -132,9 +134,10 @@ func main() {
 	}
 
 	m := model{
-		pollEvery: *pollEvery,
-		prefixes:  parsePrefixes(*prefixes),
-		maxLines:  *maxLines,
+		pollEvery:  *pollEvery,
+		prefixes:   parsePrefixes(*prefixes),
+		maxLines:   *maxLines,
+		prevHashes: make(map[int]string),
 	}
 
 	var p *tea.Program
@@ -190,7 +193,7 @@ func runDebug(prefixes []string, maxLines int) {
 	fmt.Println()
 
 	// Load sessions
-	sessions, err := loadSessions(prefixes, maxLines)
+	sessions, _, err := loadSessions(prefixes, maxLines, make(map[int]string))
 	if err != nil {
 		fmt.Println("loadSessions error:", err)
 	} else {
@@ -308,8 +311,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 	case tickMsg:
 		return m, tea.Batch(m.refreshCmd(), tick(m.pollEvery))
-	case []session:
-		m.sessions = msg
+	case sessionsMsg:
+		m.sessions = msg.sessions
+		m.prevHashes = msg.hashes
 		if m.selected >= len(m.sessions) {
 			m.selected = len(m.sessions) - 1
 			if m.selected < 0 {
@@ -576,13 +580,19 @@ func (m model) renderHelp(width int) string {
 	return help
 }
 
+type sessionsMsg struct {
+	sessions []session
+	hashes   map[int]string
+}
+
 func (m model) refreshCmd() tea.Cmd {
+	prevHashes := m.prevHashes
 	return func() tea.Msg {
-		sessions, err := loadSessions(m.prefixes, m.maxLines)
+		sessions, hashes, err := loadSessions(m.prefixes, m.maxLines, prevHashes)
 		if err != nil {
 			return err
 		}
-		return sessions
+		return sessionsMsg{sessions: sessions, hashes: hashes}
 	}
 }
 
@@ -628,7 +638,7 @@ func renameCmd(windowID int, title string) tea.Cmd {
 
 var debugLog *os.File
 
-func loadSessions(prefixes []string, maxLines int) ([]session, error) {
+func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([]session, map[int]string, error) {
 	if debugLog != nil {
 		fmt.Fprintf(debugLog, "[%s] loadSessions called, prefixes=%v\n", time.Now().Format("15:04:05"), prefixes)
 	}
@@ -638,13 +648,14 @@ func loadSessions(prefixes []string, maxLines int) ([]session, error) {
 		if debugLog != nil {
 			fmt.Fprintf(debugLog, "[%s] kittyList error: %v\n", time.Now().Format("15:04:05"), err)
 		}
-		return nil, err
+		return nil, nil, err
 	}
 
 	if debugLog != nil {
 		fmt.Fprintf(debugLog, "[%s] kittyList returned %d OS windows\n", time.Now().Format("15:04:05"), len(osWindows))
 	}
 
+	newHashes := make(map[int]string)
 	var sessions []session
 	for _, ow := range osWindows {
 		for _, tab := range ow.Tabs {
@@ -659,8 +670,24 @@ func loadSessions(prefixes []string, maxLines int) ([]session, error) {
 				}
 				text, _ := kittyGetText(win.ID)
 				lines := normalizeLines(text, maxLines)
-				status := inferStatus(lines)
-				// Use window title if available, otherwise tab title, otherwise cwd
+
+				// Compute hash from last few lines
+				hashLines := lines
+				if len(hashLines) > 5 {
+					hashLines = hashLines[len(hashLines)-5:]
+				}
+				currentHash := strings.Join(hashLines, "\n")
+				newHashes[win.ID] = currentHash
+
+				// Determine status: if output changed, it's RUNNING
+				var status string
+				prevHash, hasPrev := prevHashes[win.ID]
+				if hasPrev && currentHash != prevHash {
+					status = "RUNNING"
+				} else {
+					status = inferStatus(lines)
+				}
+
 				title := win.Title
 				if title == "" {
 					title = tab.Title
@@ -669,14 +696,15 @@ func loadSessions(prefixes []string, maxLines int) ([]session, error) {
 					title = win.Cwd
 				}
 				sessions = append(sessions, session{
-					TabID:    tab.ID,
-					WindowID: win.ID,
-					Title:    title,
-					AI:       ai,
-					Status:   status,
-					Lines:    lines,
-					Updated:  time.Now(),
-					Cwd:      win.Cwd,
+					TabID:      tab.ID,
+					WindowID:   win.ID,
+					Title:      title,
+					AI:         ai,
+					Status:     status,
+					Lines:      lines,
+					Updated:    time.Now(),
+					Cwd:        win.Cwd,
+					OutputHash: currentHash,
 				})
 			}
 		}
@@ -686,7 +714,7 @@ func loadSessions(prefixes []string, maxLines int) ([]session, error) {
 		fmt.Fprintf(debugLog, "[%s] returning %d sessions\n", time.Now().Format("15:04:05"), len(sessions))
 	}
 
-	return sortSessions(sessions), nil
+	return sortSessions(sessions), newHashes, nil
 }
 
 func sortSessions(sessions []session) []session {
@@ -800,6 +828,7 @@ func normalizeLines(text string, maxLines int) []string {
 	return trimmed
 }
 
+// inferStatus determines status based on output content (used when output hasn't changed)
 func inferStatus(lines []string) string {
 	if len(lines) == 0 {
 		return "IDLE"
@@ -814,53 +843,31 @@ func inferStatus(lines []string) string {
 	}
 	recentText := strings.ToLower(strings.Join(recentLines, " "))
 
-	// Check if actively working first (takes priority)
-	// Look for status line patterns like "- thinking)" or "calculating..."
-	if strings.Contains(recentText, "- thinking)") ||
-		strings.Contains(recentText, "- twisting)") ||
-		strings.Contains(recentText, "calculating...") ||
-		strings.Contains(recentText, "ctrl+c to interrupt") {
-		return "RUNNING"
+	// WAITING: needs user confirmation
+	if strings.Contains(recentText, "waiting") ||
+		strings.Contains(recentText, "approval") ||
+		strings.Contains(recentText, "confirm") ||
+		strings.Contains(recentText, "press enter") {
+		return "WAITING"
 	}
 
-	// Prompt waiting patterns
+	// IDLE: prompt waiting patterns
 	if lastLine == ">" || lastLine == ">>" ||
 		strings.HasPrefix(lastLine, "> ") ||
 		strings.HasPrefix(lastLine, "$ ") ||
 		strings.HasPrefix(lastLine, "% ") ||
 		strings.HasSuffix(lastLine, " >") ||
-		strings.HasSuffix(lastLine, "$ ") ||
-		strings.HasSuffix(lastLine, "% ") ||
 		strings.Contains(lastLineLower, "context left") ||
-		strings.Contains(lastLineLower, "? for shortcuts") {
-		return "IDLE"
-	}
-
-	// Claude Code completion patterns
-	if strings.Contains(recentText, "accept edits") ||
+		strings.Contains(lastLineLower, "? for shortcuts") ||
+		strings.Contains(recentText, "accept edits") ||
 		strings.Contains(recentText, "crunched for") ||
-		strings.Contains(recentText, "brewed for") {
+		strings.Contains(recentText, "brewed for") ||
+		strings.Contains(recentText, "worked for") {
 		return "IDLE"
 	}
 
-	lookback := 20
-	start := 0
-	if len(lines) > lookback {
-		start = len(lines) - lookback
-	}
-	chunk := strings.ToLower(strings.Join(lines[start:], " "))
-	if strings.Contains(chunk, "waiting") ||
-		strings.Contains(chunk, "approval") ||
-		strings.Contains(chunk, "confirm") ||
-		strings.Contains(chunk, "press enter") {
-		return "WAITING"
-	}
-	if strings.Contains(chunk, "done") ||
-		strings.Contains(chunk, "finished") ||
-		strings.Contains(chunk, "complete") {
-		return "DONE"
-	}
-	return "RUNNING"
+	// Default to IDLE when output hasn't changed
+	return "IDLE"
 }
 
 func truncateString(s string, maxLen int) string {
