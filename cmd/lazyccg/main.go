@@ -313,46 +313,46 @@ func (m model) View() string {
 		return ""
 	}
 
-	// シンプルなレイアウト
+	// レイアウト計算
 	leftWidth := m.width / 2
-	if leftWidth < 30 {
-		leftWidth = 30
+	if leftWidth < 35 {
+		leftWidth = 35
 	}
-	rightWidth := m.width - leftWidth - 2
+	rightWidth := m.width - leftWidth - 1
 
-	maxSessionLines := m.height - 10
-	if maxSessionLines < 5 {
-		maxSessionLines = 5
-	}
-	maxOutputLines := m.height - 3
-	if maxOutputLines < 5 {
-		maxOutputLines = 5
+	// 左側: Sessions + Status
+	statusHeight := 7
+	sessionsHeight := m.height - statusHeight - 2
+	if sessionsHeight < 5 {
+		sessionsHeight = 5
 	}
 
-	sessions := m.renderSessionsPanel(leftWidth, maxSessionLines)
-	status := m.renderStatusPanel(leftWidth)
-	output := m.renderOutputPanel(rightWidth, maxOutputLines)
+	// 右側: Output
+	outputHeight := m.height - 1
+
+	sessions := m.renderSessionsPanel(leftWidth, sessionsHeight)
+	status := m.renderStatusPanel(leftWidth, statusHeight)
+	output := m.renderOutputPanel(rightWidth, outputHeight)
 
 	left := sessions + "\n" + status
-	content := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", output)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, output)
 	help := m.renderHelp(m.width)
 
 	return content + "\n" + help
 }
 
-func (m model) renderSessionsPanel(width, maxLines int) string {
+func (m model) renderSessionsPanel(width, height int) string {
 	// 同じタブIDが複数あるかチェック
 	tabCount := make(map[int]int)
 	for _, s := range m.sessions {
 		tabCount[s.TabID]++
 	}
 
-	// コンテンツを作成（タイトル行を含む）
-	var lines []string
-	lines = append(lines, titleStyle.Render("Sessions"))
+	// ボックス内のコンテンツを作成
+	var content []string
 
 	if len(m.sessions) == 0 {
-		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
+		content = append(content, helpDescStyle.Render(" (no sessions)"))
 	} else {
 		for i, s := range m.sessions {
 			name := s.Title
@@ -378,69 +378,67 @@ func (m model) renderSessionsPanel(width, maxLines int) string {
 
 			// 選択されている場合はハイライト
 			if i == m.selected {
-				// 幅に合わせてパディング
+				// 幅に合わせてパディング（ボーダー分を考慮）
 				paddedLine := line
 				lineWidth := lipgloss.Width(line)
-				if lineWidth < width-2 {
-					paddedLine = line + strings.Repeat(" ", width-2-lineWidth)
+				innerWidth := width - 2
+				if lineWidth < innerWidth {
+					paddedLine = line + strings.Repeat(" ", innerWidth-lineWidth)
 				}
 				line = selectedStyle.Render(paddedLine)
 			}
-			lines = append(lines, line)
+			content = append(content, line)
 		}
 	}
 
-	// 最大行数に制限
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-	}
+	// ボーダー色を選択（アクティブパネル用）
+	borderColor := cyan
 
-	return strings.Join(lines, "\n")
+	return drawBox("Sessions", content, width, height, borderColor)
 }
 
-func (m model) renderStatusPanel(width int) string {
+func (m model) renderStatusPanel(width, height int) string {
 	// ステータス集計
 	statusCount := make(map[string]int)
 	for _, s := range m.sessions {
 		statusCount[s.Status]++
 	}
 
-	// 縦にステータスを表示（タイトル行を含む）
-	var lines []string
-	lines = append(lines, titleStyle.Render("Status"))
+	// ボックス内のコンテンツを作成
+	var content []string
 
 	if c := statusCount["RUNNING"]; c > 0 {
-		lines = append(lines, " "+statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
+		content = append(content, " "+statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
 	}
 	if c := statusCount["IDLE"]; c > 0 {
-		lines = append(lines, " "+statusIdle.Render(fmt.Sprintf("IDLE: %d", c)))
+		content = append(content, " "+statusIdle.Render(fmt.Sprintf("IDLE: %d", c)))
 	}
 	if c := statusCount["WAITING"]; c > 0 {
-		lines = append(lines, " "+statusWaiting.Render(fmt.Sprintf("WAITING: %d", c)))
+		content = append(content, " "+statusWaiting.Render(fmt.Sprintf("WAITING: %d", c)))
 	}
 	if c := statusCount["DONE"]; c > 0 {
-		lines = append(lines, " "+statusDone.Render(fmt.Sprintf("DONE: %d", c)))
+		content = append(content, " "+statusDone.Render(fmt.Sprintf("DONE: %d", c)))
 	}
-	if len(lines) == 1 {
-		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
+	if len(content) == 0 {
+		content = append(content, helpDescStyle.Render(" (no sessions)"))
 	}
 
-	return strings.Join(lines, "\n")
+	return drawBox("Status", content, width, height, gray)
 }
 
-func (m model) renderOutputPanel(width, maxLines int) string {
-	var lines []string
-	lines = append(lines, titleStyle.Render("Output"))
+func (m model) renderOutputPanel(width, height int) string {
+	// ボックス内のコンテンツを作成
+	var content []string
 
 	if len(m.sessions) == 0 || m.selected >= len(m.sessions) {
-		lines = append(lines, helpDescStyle.Render("  (no output)"))
+		content = append(content, helpDescStyle.Render(" (no output)"))
 	} else {
 		logs := m.sessions[m.selected].Lines
 		if len(logs) == 0 {
-			lines = append(lines, helpDescStyle.Render("  (empty)"))
+			content = append(content, helpDescStyle.Render(" (empty)"))
 		} else {
-			// 表示する行数を制限（タイトル行分を引く）
-			availableLines := maxLines - 1
+			// 表示する行数を制限（ボーダー上下分を引く）
+			availableLines := height - 2
 			if availableLines < 1 {
 				availableLines = 1
 			}
@@ -448,16 +446,19 @@ func (m model) renderOutputPanel(width, maxLines int) string {
 			if len(displayLines) > availableLines {
 				displayLines = displayLines[len(displayLines)-availableLines:]
 			}
-			lines = append(lines, displayLines...)
+			// 各行を内部幅に収める
+			innerWidth := width - 2
+			for _, line := range displayLines {
+				// ANSIコードを考慮して切り詰め
+				if lipgloss.Width(line) > innerWidth {
+					line = truncateString(line, innerWidth)
+				}
+				content = append(content, " "+line)
+			}
 		}
 	}
 
-	// 最大行数に制限
-	if len(lines) > maxLines {
-		lines = lines[:maxLines]
-	}
-
-	return strings.Join(lines, "\n")
+	return drawBox("Output", content, width, height, gray)
 }
 
 func (m model) formatStatus(status string) string {
@@ -797,4 +798,56 @@ func shortAI(ai string) string {
 		}
 		return strings.ToUpper(ai)
 	}
+}
+
+// 手動ボーダー描画
+func drawBox(title string, content []string, width, height int, borderColor lipgloss.Color) string {
+	// ボーダー文字
+	topLeft := "╭"
+	topRight := "╮"
+	bottomLeft := "╰"
+	bottomRight := "╯"
+	horizontal := "─"
+	vertical := "│"
+
+	colorStyle := lipgloss.NewStyle().Foreground(borderColor)
+	titleStyled := titleStyle.Render(title)
+
+	// 内部幅（ボーダー分を引く）
+	innerWidth := width - 2
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	// タイトル行を作成
+	titleLen := lipgloss.Width(titleStyled)
+	remainingWidth := innerWidth - titleLen - 2
+	if remainingWidth < 0 {
+		remainingWidth = 0
+	}
+	topLine := colorStyle.Render(topLeft+horizontal) + titleStyled + colorStyle.Render(strings.Repeat(horizontal, remainingWidth)+topRight)
+
+	// コンテンツ行を作成
+	var lines []string
+	lines = append(lines, topLine)
+
+	for i := 0; i < height-2; i++ {
+		var lineContent string
+		if i < len(content) {
+			lineContent = content[i]
+		}
+		// 行の幅を計算してパディング
+		lineWidth := lipgloss.Width(lineContent)
+		padding := innerWidth - lineWidth
+		if padding < 0 {
+			padding = 0
+		}
+		lines = append(lines, colorStyle.Render(vertical)+lineContent+strings.Repeat(" ", padding)+colorStyle.Render(vertical))
+	}
+
+	// 下線
+	bottomLine := colorStyle.Render(bottomLeft + strings.Repeat(horizontal, innerWidth) + bottomRight)
+	lines = append(lines, bottomLine)
+
+	return strings.Join(lines, "\n")
 }
