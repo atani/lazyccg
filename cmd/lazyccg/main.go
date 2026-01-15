@@ -318,7 +318,7 @@ func (m model) View() string {
 	if leftWidth < 35 {
 		leftWidth = 35
 	}
-	rightWidth := m.width - leftWidth - 1
+	rightWidth := m.width - leftWidth
 
 	// 左側: Sessions + Status
 	statusHeight := 7
@@ -327,8 +327,8 @@ func (m model) View() string {
 		sessionsHeight = 5
 	}
 
-	// 右側: Output
-	outputHeight := m.height - 1
+	// 右側: Output（左右パネルの高さを揃える）
+	outputHeight := m.height - 2
 
 	sessions := m.renderSessionsPanel(leftWidth, sessionsHeight)
 	status := m.renderStatusPanel(leftWidth, statusHeight)
@@ -820,8 +820,10 @@ func drawBox(title string, content []string, width, height int, borderColor lipg
 	}
 
 	// タイトル行を作成
+	// ╭─Title─────────╮
+	// topLeft(1) + horizontal(1) + title + horizontal(remaining) + topRight(1) = width
 	titleLen := lipgloss.Width(titleStyled)
-	remainingWidth := innerWidth - titleLen - 2
+	remainingWidth := width - 3 - titleLen
 	if remainingWidth < 0 {
 		remainingWidth = 0
 	}
