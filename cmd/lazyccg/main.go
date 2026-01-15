@@ -316,23 +316,47 @@ func (m model) View() string {
 	// レイアウト計算
 	helpHeight := 1
 	contentHeight := m.height - helpHeight
-	if contentHeight < 3 {
-		contentHeight = 3
+	if contentHeight < 6 {
+		contentHeight = 6
 	}
 
-	leftWidth := 40
-	if m.width < 80 {
-		leftWidth = m.width / 2
+	leftWidth := m.width / 2
+	if leftWidth < 30 {
+		leftWidth = 30
 	}
 	rightWidth := m.width - leftWidth
+	if rightWidth < 10 {
+		rightWidth = 10
+	}
 
-	// パネル内部の高さ（ボーダー分を引く）
-	innerHeight := contentHeight - 2
+	// 左側: Sessions + Status を縦に並べる
+	statusPanelHeight := 6 // Status パネルの高さ（ボーダー含む）
+	sessionsPanelHeight := contentHeight - statusPanelHeight
+	if sessionsPanelHeight < 4 {
+		sessionsPanelHeight = 4
+	}
 
-	left := m.renderSessionsPanel(leftWidth, innerHeight)
-	right := m.renderOutputPanel(rightWidth, innerHeight)
+	sessionsInnerHeight := sessionsPanelHeight - 2
+	if sessionsInnerHeight < 1 {
+		sessionsInnerHeight = 1
+	}
+	statusInnerHeight := statusPanelHeight - 2
+	if statusInnerHeight < 1 {
+		statusInnerHeight = 1
+	}
 
-	content := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	// 右側: Output（全高さ）
+	outputInnerHeight := contentHeight - 2
+	if outputInnerHeight < 1 {
+		outputInnerHeight = 1
+	}
+
+	sessions := m.renderSessionsPanel(leftWidth, sessionsInnerHeight)
+	status := m.renderStatusPanel(leftWidth, statusInnerHeight)
+	output := m.renderOutputPanel(rightWidth, outputInnerHeight)
+
+	left := lipgloss.JoinVertical(lipgloss.Left, sessions, status)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, output)
 	help := m.renderHelp(m.width)
 
 	return content + "\n" + help
@@ -348,35 +372,11 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 		tabCount[s.TabID]++
 	}
 
-	// ステータス集計
-	statusCount := make(map[string]int)
-	for _, s := range m.sessions {
-		statusCount[s.Status]++
-	}
-
 	// コンテンツを作成
 	var lines []string
 	if len(m.sessions) == 0 {
 		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
 	} else {
-		// ステータス集計行を追加
-		var summaryParts []string
-		if c := statusCount["RUNNING"]; c > 0 {
-			summaryParts = append(summaryParts, statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
-		}
-		if c := statusCount["IDLE"]; c > 0 {
-			summaryParts = append(summaryParts, statusIdle.Render(fmt.Sprintf("IDLE: %d", c)))
-		}
-		if c := statusCount["WAITING"]; c > 0 {
-			summaryParts = append(summaryParts, statusWaiting.Render(fmt.Sprintf("WAITING: %d", c)))
-		}
-		if c := statusCount["DONE"]; c > 0 {
-			summaryParts = append(summaryParts, statusDone.Render(fmt.Sprintf("DONE: %d", c)))
-		}
-		if len(summaryParts) > 0 {
-			lines = append(lines, " "+strings.Join(summaryParts, "  "))
-			lines = append(lines, "") // 空行
-		}
 		for i, s := range m.sessions {
 			name := s.Title
 			if name == "" {
@@ -424,6 +424,49 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 		Render(content)
 
 	// タイトルをボーダーに埋め込む
+	return embedTitle(panel, title)
+}
+
+func (m model) renderStatusPanel(width, innerHeight int) string {
+	title := titleStyle.Render(" Status ")
+
+	// ステータス集計
+	statusCount := make(map[string]int)
+	for _, s := range m.sessions {
+		statusCount[s.Status]++
+	}
+
+	// 縦にステータスを表示
+	var lines []string
+	if c := statusCount["RUNNING"]; c > 0 {
+		lines = append(lines, " "+statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
+	}
+	if c := statusCount["IDLE"]; c > 0 {
+		lines = append(lines, " "+statusIdle.Render(fmt.Sprintf("IDLE: %d", c)))
+	}
+	if c := statusCount["WAITING"]; c > 0 {
+		lines = append(lines, " "+statusWaiting.Render(fmt.Sprintf("WAITING: %d", c)))
+	}
+	if c := statusCount["DONE"]; c > 0 {
+		lines = append(lines, " "+statusDone.Render(fmt.Sprintf("DONE: %d", c)))
+	}
+	if len(lines) == 0 {
+		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
+	}
+
+	content := strings.Join(lines, "\n")
+
+	// 高さを調整
+	lineCount := len(lines)
+	if lineCount < innerHeight {
+		content += strings.Repeat("\n", innerHeight-lineCount)
+	}
+
+	panel := borderStyle.
+		Width(width - 2).
+		Height(innerHeight).
+		Render(content)
+
 	return embedTitle(panel, title)
 }
 
