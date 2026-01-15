@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ type session struct {
 	Status   string
 	Lines    []string
 	Updated  time.Time
+	Cwd      string
 }
 
 type model struct {
@@ -340,6 +342,12 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 	// タイトルを作成
 	title := titleStyle.Render(" Sessions ")
 
+	// 同じタブIDが複数あるかチェック
+	tabCount := make(map[int]int)
+	for _, s := range m.sessions {
+		tabCount[s.TabID]++
+	}
+
 	// コンテンツを作成
 	var lines []string
 	if len(m.sessions) == 0 {
@@ -349,6 +357,12 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 			name := s.Title
 			if name == "" {
 				name = fmt.Sprintf("tab-%d", s.TabID)
+			}
+
+			// 同じタブに複数ウィンドウがある場合はCWDのbasenameを追加
+			if tabCount[s.TabID] > 1 && s.Cwd != "" {
+				cwdBase := filepath.Base(s.Cwd)
+				name = fmt.Sprintf("%s/%s", name, cwdBase)
 			}
 
 			// AI名とステータスをフォーマット
@@ -585,6 +599,7 @@ func loadSessions(prefixes []string, maxLines int) ([]session, error) {
 					Status:   status,
 					Lines:    lines,
 					Updated:  time.Now(),
+					Cwd:      win.Cwd,
 				})
 			}
 		}
