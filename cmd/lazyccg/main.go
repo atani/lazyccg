@@ -15,43 +15,22 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// カラー定義（lazydocker風）
 var (
-	cyan       = lipgloss.Color("86")
-	darkCyan   = lipgloss.Color("30")
-	white      = lipgloss.Color("255")
-	gray       = lipgloss.Color("240")
-	darkGray   = lipgloss.Color("236")
-	green      = lipgloss.Color("78")
-	yellow     = lipgloss.Color("220")
-	red        = lipgloss.Color("196")
+	cyan     = lipgloss.Color("86")
+	darkCyan = lipgloss.Color("30")
+	white    = lipgloss.Color("255")
+	gray     = lipgloss.Color("240")
+	green    = lipgloss.Color("78")
+	yellow   = lipgloss.Color("220")
 
-	// ボーダースタイル
-	borderStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(gray)
+	titleStyle    = lipgloss.NewStyle().Foreground(cyan).Bold(true)
+	selectedStyle = lipgloss.NewStyle().Background(darkCyan).Foreground(white)
 
-	activeBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(cyan)
-
-	// タイトルスタイル
-	titleStyle = lipgloss.NewStyle().
-			Foreground(cyan).
-			Bold(true)
-
-	// 選択行スタイル
-	selectedStyle = lipgloss.NewStyle().
-			Background(darkCyan).
-			Foreground(white)
-
-	// ステータス色
 	statusRunning = lipgloss.NewStyle().Foreground(green)
 	statusIdle    = lipgloss.NewStyle().Foreground(gray)
 	statusWaiting = lipgloss.NewStyle().Foreground(yellow)
 	statusDone    = lipgloss.NewStyle().Foreground(cyan)
 
-	// ヘルプスタイル
 	helpKeyStyle  = lipgloss.NewStyle().Foreground(cyan)
 	helpDescStyle = lipgloss.NewStyle().Foreground(gray)
 )
@@ -68,22 +47,20 @@ type session struct {
 }
 
 type model struct {
-	width      int
-	height     int
-	selected   int
-	sessions   []session
-	err        error
-	pollEvery  time.Duration
-	prefixes   []string
-	maxLines   int
-	lastUpdate time.Time
-	// リネームモード
-	renaming    bool
-	renameInput []rune // runeスライスで日本語対応
-	// フィルタ機能
+	width          int
+	height         int
+	selected       int
+	sessions       []session
+	err            error
+	pollEvery      time.Duration
+	prefixes       []string
+	maxLines       int
+	lastUpdate     time.Time
+	renaming       bool
+	renameInput    []rune
 	focusedPanel   int    // 0=Sessions, 1=Status
-	statusFilter   string // "" = フィルタなし, "RUNNING"等 = そのステータスのみ表示
-	statusSelected int    // Statusパネル内の選択位置
+	statusFilter   string // "" = no filter
+	statusSelected int
 }
 
 type tickMsg time.Time
@@ -235,7 +212,6 @@ type renameResultMsg struct {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// リネームモード中の処理
 		if m.renaming {
 			switch msg.Type {
 			case tea.KeyEnter:
@@ -264,37 +240,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// 通常モード
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			// パネル切り替え
 			m.focusedPanel = (m.focusedPanel + 1) % 2
 		case "esc":
-			// フィルタ解除してSessionsに戻る
 			m.statusFilter = ""
 			m.focusedPanel = 0
 		case "enter":
 			if m.focusedPanel == 0 {
-				// Sessionsパネル: フォーカス
 				filtered := m.filteredSessions()
 				if len(filtered) > 0 && m.selected >= 0 && m.selected < len(filtered) {
 					return m, focusCmd(filtered[m.selected].WindowID)
 				}
 			} else {
-				// Statusパネル: フィルタ切り替え
 				statuses := m.availableStatuses()
 				if m.statusSelected >= 0 && m.statusSelected < len(statuses) {
 					selected := statuses[m.statusSelected]
 					if m.statusFilter == selected {
-						// 同じステータスを選択したらフィルタ解除
 						m.statusFilter = ""
 					} else {
 						m.statusFilter = selected
 					}
-					m.selected = 0 // 選択をリセット
-					m.focusedPanel = 0 // Sessionsに戻る
+					m.selected = 0
+					m.focusedPanel = 0
 				}
 			}
 		case "r":
@@ -360,7 +330,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// フィルタ済みセッションを返す
 func (m model) filteredSessions() []session {
 	if m.statusFilter == "" {
 		return m.sessions
@@ -374,7 +343,6 @@ func (m model) filteredSessions() []session {
 	return filtered
 }
 
-// 存在するステータス一覧を返す（固定順序）
 func (m model) availableStatuses() []string {
 	statusOrder := []string{"RUNNING", "IDLE", "WAITING", "DONE"}
 	statusCount := make(map[string]int)
@@ -395,21 +363,17 @@ func (m model) View() string {
 		return ""
 	}
 
-	// レイアウト計算
 	leftWidth := m.width / 2
 	if leftWidth < 35 {
 		leftWidth = 35
 	}
 	rightWidth := m.width - leftWidth
 
-	// 左側: Sessions + Status
 	statusHeight := 7
 	sessionsHeight := m.height - statusHeight - 2
 	if sessionsHeight < 5 {
 		sessionsHeight = 5
 	}
-
-	// 右側: Output（左右パネルの高さを揃える）
 	outputHeight := m.height - 2
 
 	sessions := m.renderSessionsPanel(leftWidth, sessionsHeight)
@@ -424,16 +388,12 @@ func (m model) View() string {
 }
 
 func (m model) renderSessionsPanel(width, height int) string {
-	// 同じタブIDが複数あるかチェック（全セッションで）
 	tabCount := make(map[int]int)
 	for _, s := range m.sessions {
 		tabCount[s.TabID]++
 	}
 
-	// フィルタ済みセッションを取得
 	filtered := m.filteredSessions()
-
-	// ボックス内のコンテンツを作成
 	var content []string
 
 	if len(filtered) == 0 {
@@ -448,45 +408,28 @@ func (m model) renderSessionsPanel(width, height int) string {
 			if name == "" {
 				name = fmt.Sprintf("tab-%d", s.TabID)
 			}
-
-			// 同じタブに複数ウィンドウがある場合はCWDのbasenameを追加
 			if tabCount[s.TabID] > 1 && s.Cwd != "" {
-				cwdBase := filepath.Base(s.Cwd)
-				name = fmt.Sprintf("%s/%s", name, cwdBase)
+				name = fmt.Sprintf("%s/%s", name, filepath.Base(s.Cwd))
 			}
-
-			// タブ名を制限
 			name = truncateString(name, 20)
+			line := fmt.Sprintf(" %s (%s)  %s", name, shortAI(s.AI), m.formatStatus(s.Status))
 
-			// AI名を2文字に略す
-			ai := shortAI(s.AI)
-			status := m.formatStatus(s.Status)
-
-			// 行を構築: タブ名 (AI)  STATUS
-			line := fmt.Sprintf(" %s (%s)  %s", name, ai, status)
-
-			// 選択されている場合はハイライト（Sessionsパネルがフォーカスされている時のみ）
 			if i == m.selected && m.focusedPanel == 0 {
-				// 幅に合わせてパディング（ボーダー分を考慮）
-				paddedLine := line
 				lineWidth := lipgloss.Width(line)
-				innerWidth := width - 2
-				if lineWidth < innerWidth {
-					paddedLine = line + strings.Repeat(" ", innerWidth-lineWidth)
+				if innerWidth := width - 2; lineWidth < innerWidth {
+					line = line + strings.Repeat(" ", innerWidth-lineWidth)
 				}
-				line = selectedStyle.Render(paddedLine)
+				line = selectedStyle.Render(line)
 			}
 			content = append(content, line)
 		}
 	}
 
-	// ボーダー色を選択（フォーカスされている場合はcyan、そうでなければgray）
 	borderColor := gray
 	if m.focusedPanel == 0 {
 		borderColor = cyan
 	}
 
-	// タイトル（フィルタ中は表示）
 	title := "Sessions"
 	if m.statusFilter != "" {
 		title = fmt.Sprintf("Sessions [%s]", m.statusFilter)
@@ -496,26 +439,19 @@ func (m model) renderSessionsPanel(width, height int) string {
 }
 
 func (m model) renderStatusPanel(width, height int) string {
-	// ステータス集計
 	statusCount := make(map[string]int)
 	for _, s := range m.sessions {
 		statusCount[s.Status]++
 	}
 
-	// 存在するステータス一覧
 	statuses := m.availableStatuses()
-
-	// ボックス内のコンテンツを作成
 	var content []string
 
 	if len(statuses) == 0 {
 		content = append(content, helpDescStyle.Render(" (no sessions)"))
 	} else {
 		for i, status := range statuses {
-			c := statusCount[status]
-			text := fmt.Sprintf("%s: %d", status, c)
-
-			// ステータスに応じた色
+			text := fmt.Sprintf("%s: %d", status, statusCount[status])
 			var styledText string
 			switch status {
 			case "RUNNING":
@@ -530,30 +466,23 @@ func (m model) renderStatusPanel(width, height int) string {
 				styledText = text
 			}
 
-			// フィルタ中のステータスにはマーカーを付ける
 			prefix := " "
 			if m.statusFilter == status {
 				prefix = "*"
 			}
-
 			line := prefix + styledText
 
-			// Statusパネルがフォーカスされている場合は選択をハイライト
 			if m.focusedPanel == 1 && i == m.statusSelected {
-				paddedLine := line
 				lineWidth := lipgloss.Width(line)
-				innerWidth := width - 2
-				if lineWidth < innerWidth {
-					paddedLine = line + strings.Repeat(" ", innerWidth-lineWidth)
+				if innerWidth := width - 2; lineWidth < innerWidth {
+					line = line + strings.Repeat(" ", innerWidth-lineWidth)
 				}
-				line = selectedStyle.Render(paddedLine)
+				line = selectedStyle.Render(line)
 			}
-
 			content = append(content, line)
 		}
 	}
 
-	// ボーダー色を選択（フォーカスされている場合はcyan、そうでなければgray）
 	borderColor := gray
 	if m.focusedPanel == 1 {
 		borderColor = cyan
@@ -563,10 +492,7 @@ func (m model) renderStatusPanel(width, height int) string {
 }
 
 func (m model) renderOutputPanel(width, height int) string {
-	// フィルタ済みセッションを取得
 	filtered := m.filteredSessions()
-
-	// ボックス内のコンテンツを作成
 	var content []string
 
 	if len(filtered) == 0 || m.selected >= len(filtered) {
@@ -576,7 +502,6 @@ func (m model) renderOutputPanel(width, height int) string {
 		if len(logs) == 0 {
 			content = append(content, helpDescStyle.Render(" (empty)"))
 		} else {
-			// 表示する行数を制限（ボーダー上下分を引く）
 			availableLines := height - 2
 			if availableLines < 1 {
 				availableLines = 1
@@ -585,10 +510,8 @@ func (m model) renderOutputPanel(width, height int) string {
 			if len(displayLines) > availableLines {
 				displayLines = displayLines[len(displayLines)-availableLines:]
 			}
-			// 各行を内部幅に収める
 			innerWidth := width - 2
 			for _, line := range displayLines {
-				// ANSIコードを考慮して切り詰め
 				if lipgloss.Width(line) > innerWidth {
 					line = truncateString(line, innerWidth)
 				}
@@ -618,14 +541,10 @@ func (m model) formatStatus(status string) string {
 
 func (m model) renderHelp(width int) string {
 	if m.renaming {
-		// リネームモード
 		input := string(m.renameInput)
-		prompt := helpKeyStyle.Render("Rename: ") + input + "█"
-		hint := helpDescStyle.Render(" (enter: confirm, esc: cancel)")
-		return prompt + hint
+		return helpKeyStyle.Render("Rename: ") + input + "█" + helpDescStyle.Render(" (enter: confirm, esc: cancel)")
 	}
 
-	// 通常モードのヘルプ
 	var items []string
 	if m.focusedPanel == 0 {
 		items = []string{
@@ -646,7 +565,6 @@ func (m model) renderHelp(width int) string {
 
 	help := strings.Join(items, "  ")
 
-	// 右側に更新時刻
 	if !m.lastUpdate.IsZero() {
 		updated := helpDescStyle.Render(m.lastUpdate.Format("15:04:05"))
 		padding := width - lipgloss.Width(help) - lipgloss.Width(updated) - 2
@@ -887,29 +805,32 @@ func inferStatus(lines []string) string {
 		return "IDLE"
 	}
 
-	// 最終数行をチェック（プロンプト待ち検出）
 	lastLine := strings.TrimSpace(lines[len(lines)-1])
 	lastLineLower := strings.ToLower(lastLine)
 
-	// 直近数行も確認（Claude Codeは複数行でプロンプトを表示することがある）
 	recentLines := lines
 	if len(lines) > 5 {
 		recentLines = lines[len(lines)-5:]
 	}
 	recentText := strings.ToLower(strings.Join(recentLines, " "))
-
-	// プロンプト待ちパターン
-	if lastLine == ">" || lastLine == ">>" || // Claude Code プロンプト
-		strings.HasPrefix(lastLine, "> ") || // Codex, Claude等
-		strings.HasPrefix(lastLine, "$ ") || // シェルプロンプト
-		strings.HasPrefix(lastLine, "% ") || // zshプロンプト
-		strings.HasSuffix(lastLine, ">") || // 末尾が>
+	if lastLine == ">" || lastLine == ">>" ||
+		strings.HasPrefix(lastLine, "> ") ||
+		strings.HasPrefix(lastLine, "$ ") ||
+		strings.HasPrefix(lastLine, "% ") ||
+		strings.HasSuffix(lastLine, " >") ||
 		strings.HasSuffix(lastLine, "$ ") ||
 		strings.HasSuffix(lastLine, "% ") ||
-		strings.Contains(lastLineLower, "context left") || // Codex特有
-		strings.Contains(lastLineLower, "? for shortcuts") || // Codex特有
-		strings.Contains(recentText, "accept edits") || // Claude Code編集確認待ち
-		strings.Contains(recentText, "crunched for") { // Claude Code完了
+		strings.Contains(lastLineLower, "context left") ||
+		strings.Contains(lastLineLower, "? for shortcuts") {
+		return "IDLE"
+	}
+
+	// Check recent lines for Claude Code specific patterns (but not while actively working)
+	if !strings.Contains(recentText, "thinking") &&
+		!strings.Contains(recentText, "twisting") &&
+		(strings.Contains(recentText, "accept edits") ||
+			strings.Contains(recentText, "crunched for") ||
+			strings.Contains(recentText, "brewed for")) {
 		return "IDLE"
 	}
 
@@ -960,36 +881,22 @@ func shortAI(ai string) string {
 	}
 }
 
-// 手動ボーダー描画
 func drawBox(title string, content []string, width, height int, borderColor lipgloss.Color) string {
-	// ボーダー文字
-	topLeft := "╭"
-	topRight := "╮"
-	bottomLeft := "╰"
-	bottomRight := "╯"
-	horizontal := "─"
-	vertical := "│"
-
 	colorStyle := lipgloss.NewStyle().Foreground(borderColor)
 	titleStyled := titleStyle.Render(title)
 
-	// 内部幅（ボーダー分を引く）
 	innerWidth := width - 2
 	if innerWidth < 1 {
 		innerWidth = 1
 	}
 
-	// タイトル行を作成
-	// ╭─Title─────────╮
-	// topLeft(1) + horizontal(1) + title + horizontal(remaining) + topRight(1) = width
 	titleLen := lipgloss.Width(titleStyled)
 	remainingWidth := width - 3 - titleLen
 	if remainingWidth < 0 {
 		remainingWidth = 0
 	}
-	topLine := colorStyle.Render(topLeft+horizontal) + titleStyled + colorStyle.Render(strings.Repeat(horizontal, remainingWidth)+topRight)
+	topLine := colorStyle.Render("╭─") + titleStyled + colorStyle.Render(strings.Repeat("─", remainingWidth)+"╮")
 
-	// コンテンツ行を作成
 	var lines []string
 	lines = append(lines, topLine)
 
@@ -998,18 +905,15 @@ func drawBox(title string, content []string, width, height int, borderColor lipg
 		if i < len(content) {
 			lineContent = content[i]
 		}
-		// 行の幅を計算してパディング
 		lineWidth := lipgloss.Width(lineContent)
 		padding := innerWidth - lineWidth
 		if padding < 0 {
 			padding = 0
 		}
-		lines = append(lines, colorStyle.Render(vertical)+lineContent+strings.Repeat(" ", padding)+colorStyle.Render(vertical))
+		lines = append(lines, colorStyle.Render("│")+lineContent+strings.Repeat(" ", padding)+colorStyle.Render("│"))
 	}
 
-	// 下線
-	bottomLine := colorStyle.Render(bottomLeft + strings.Repeat(horizontal, innerWidth) + bottomRight)
-	lines = append(lines, bottomLine)
+	lines = append(lines, colorStyle.Render("╰"+strings.Repeat("─", innerWidth)+"╯"))
 
 	return strings.Join(lines, "\n")
 }
