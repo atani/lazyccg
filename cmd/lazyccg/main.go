@@ -815,9 +815,11 @@ func inferStatus(lines []string) string {
 	recentText := strings.ToLower(strings.Join(recentLines, " "))
 
 	// Check if actively working first (takes priority)
-	if strings.Contains(recentText, "thinking") ||
-		strings.Contains(recentText, "twisting") ||
-		strings.Contains(recentText, "calculating") {
+	// Look for status line patterns like "- thinking)" or "calculating..."
+	if strings.Contains(recentText, "- thinking)") ||
+		strings.Contains(recentText, "- twisting)") ||
+		strings.Contains(recentText, "calculating...") ||
+		strings.Contains(recentText, "ctrl+c to interrupt") {
 		return "RUNNING"
 	}
 
