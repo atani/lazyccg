@@ -80,6 +80,10 @@ type model struct {
 	// リネームモード
 	renaming    bool
 	renameInput []rune // runeスライスで日本語対応
+	// フィルタ機能
+	focusedPanel   int    // 0=Sessions, 1=Status
+	statusFilter   string // "" = フィルタなし, "RUNNING"等 = そのステータスのみ表示
+	statusSelected int    // Statusパネル内の選択位置
 }
 
 type tickMsg time.Time
@@ -235,8 +239,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.renaming {
 			switch msg.Type {
 			case tea.KeyEnter:
-				if len(m.sessions) > 0 && m.selected >= 0 && m.selected < len(m.sessions) {
-					windowID := m.sessions[m.selected].WindowID
+				filtered := m.filteredSessions()
+				if len(filtered) > 0 && m.selected >= 0 && m.selected < len(filtered) {
+					windowID := filtered[m.selected].WindowID
 					newTitle := string(m.renameInput)
 					m.renaming = false
 					m.renameInput = nil
@@ -263,22 +268,69 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "tab":
+			// パネル切り替え
+			m.focusedPanel = (m.focusedPanel + 1) % 2
+		case "esc":
+			// フィルタ解除してSessionsに戻る
+			m.statusFilter = ""
+			m.focusedPanel = 0
 		case "enter":
-			if len(m.sessions) > 0 && m.selected >= 0 && m.selected < len(m.sessions) {
-				return m, focusCmd(m.sessions[m.selected].WindowID)
+			if m.focusedPanel == 0 {
+				// Sessionsパネル: フォーカス
+				filtered := m.filteredSessions()
+				if len(filtered) > 0 && m.selected >= 0 && m.selected < len(filtered) {
+					return m, focusCmd(filtered[m.selected].WindowID)
+				}
+			} else {
+				// Statusパネル: フィルタ切り替え
+				statuses := m.availableStatuses()
+				if m.statusSelected >= 0 && m.statusSelected < len(statuses) {
+					selected := statuses[m.statusSelected]
+					if m.statusFilter == selected {
+						// 同じステータスを選択したらフィルタ解除
+						m.statusFilter = ""
+					} else {
+						m.statusFilter = selected
+					}
+					m.selected = 0 // 選択をリセット
+					m.focusedPanel = 0 // Sessionsに戻る
+				}
 			}
 		case "r":
-			if len(m.sessions) > 0 && m.selected >= 0 && m.selected < len(m.sessions) {
-				m.renaming = true
-				m.renameInput = []rune(m.sessions[m.selected].Title)
+			if m.focusedPanel == 0 {
+				filtered := m.filteredSessions()
+				if len(filtered) > 0 && m.selected >= 0 && m.selected < len(filtered) {
+					m.renaming = true
+					m.renameInput = []rune(filtered[m.selected].Title)
+				}
 			}
 		case "up", "k":
-			if m.selected > 0 {
-				m.selected--
+			if m.focusedPanel == 0 {
+				if m.selected > 0 {
+					m.selected--
+				}
+			} else {
+				statuses := m.availableStatuses()
+				if m.statusSelected > 0 {
+					m.statusSelected--
+				} else {
+					m.statusSelected = len(statuses) - 1
+				}
 			}
 		case "down", "j":
-			if m.selected < len(m.sessions)-1 {
-				m.selected++
+			if m.focusedPanel == 0 {
+				filtered := m.filteredSessions()
+				if m.selected < len(filtered)-1 {
+					m.selected++
+				}
+			} else {
+				statuses := m.availableStatuses()
+				if m.statusSelected < len(statuses)-1 {
+					m.statusSelected++
+				} else {
+					m.statusSelected = 0
+				}
 			}
 		}
 	case tea.WindowSizeMsg:
@@ -306,6 +358,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// フィルタ済みセッションを返す
+func (m model) filteredSessions() []session {
+	if m.statusFilter == "" {
+		return m.sessions
+	}
+	var filtered []session
+	for _, s := range m.sessions {
+		if s.Status == m.statusFilter {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered
+}
+
+// 存在するステータス一覧を返す（固定順序）
+func (m model) availableStatuses() []string {
+	statusOrder := []string{"RUNNING", "IDLE", "WAITING", "DONE"}
+	statusCount := make(map[string]int)
+	for _, s := range m.sessions {
+		statusCount[s.Status]++
+	}
+	var result []string
+	for _, status := range statusOrder {
+		if statusCount[status] > 0 {
+			result = append(result, status)
+		}
+	}
+	return result
 }
 
 func (m model) View() string {
@@ -342,19 +424,26 @@ func (m model) View() string {
 }
 
 func (m model) renderSessionsPanel(width, height int) string {
-	// 同じタブIDが複数あるかチェック
+	// 同じタブIDが複数あるかチェック（全セッションで）
 	tabCount := make(map[int]int)
 	for _, s := range m.sessions {
 		tabCount[s.TabID]++
 	}
 
+	// フィルタ済みセッションを取得
+	filtered := m.filteredSessions()
+
 	// ボックス内のコンテンツを作成
 	var content []string
 
-	if len(m.sessions) == 0 {
-		content = append(content, helpDescStyle.Render(" (no sessions)"))
+	if len(filtered) == 0 {
+		if m.statusFilter != "" {
+			content = append(content, helpDescStyle.Render(" (no matching sessions)"))
+		} else {
+			content = append(content, helpDescStyle.Render(" (no sessions)"))
+		}
 	} else {
-		for i, s := range m.sessions {
+		for i, s := range filtered {
 			name := s.Title
 			if name == "" {
 				name = fmt.Sprintf("tab-%d", s.TabID)
@@ -376,8 +465,8 @@ func (m model) renderSessionsPanel(width, height int) string {
 			// 行を構築: タブ名 (AI)  STATUS
 			line := fmt.Sprintf(" %s (%s)  %s", name, ai, status)
 
-			// 選択されている場合はハイライト
-			if i == m.selected {
+			// 選択されている場合はハイライト（Sessionsパネルがフォーカスされている時のみ）
+			if i == m.selected && m.focusedPanel == 0 {
 				// 幅に合わせてパディング（ボーダー分を考慮）
 				paddedLine := line
 				lineWidth := lipgloss.Width(line)
@@ -391,10 +480,19 @@ func (m model) renderSessionsPanel(width, height int) string {
 		}
 	}
 
-	// ボーダー色を選択（アクティブパネル用）
-	borderColor := cyan
+	// ボーダー色を選択（フォーカスされている場合はcyan、そうでなければgray）
+	borderColor := gray
+	if m.focusedPanel == 0 {
+		borderColor = cyan
+	}
 
-	return drawBox("Sessions", content, width, height, borderColor)
+	// タイトル（フィルタ中は表示）
+	title := "Sessions"
+	if m.statusFilter != "" {
+		title = fmt.Sprintf("Sessions [%s]", m.statusFilter)
+	}
+
+	return drawBox(title, content, width, height, borderColor)
 }
 
 func (m model) renderStatusPanel(width, height int) string {
@@ -404,36 +502,77 @@ func (m model) renderStatusPanel(width, height int) string {
 		statusCount[s.Status]++
 	}
 
+	// 存在するステータス一覧
+	statuses := m.availableStatuses()
+
 	// ボックス内のコンテンツを作成
 	var content []string
 
-	if c := statusCount["RUNNING"]; c > 0 {
-		content = append(content, " "+statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
-	}
-	if c := statusCount["IDLE"]; c > 0 {
-		content = append(content, " "+statusIdle.Render(fmt.Sprintf("IDLE: %d", c)))
-	}
-	if c := statusCount["WAITING"]; c > 0 {
-		content = append(content, " "+statusWaiting.Render(fmt.Sprintf("WAITING: %d", c)))
-	}
-	if c := statusCount["DONE"]; c > 0 {
-		content = append(content, " "+statusDone.Render(fmt.Sprintf("DONE: %d", c)))
-	}
-	if len(content) == 0 {
+	if len(statuses) == 0 {
 		content = append(content, helpDescStyle.Render(" (no sessions)"))
+	} else {
+		for i, status := range statuses {
+			c := statusCount[status]
+			text := fmt.Sprintf("%s: %d", status, c)
+
+			// ステータスに応じた色
+			var styledText string
+			switch status {
+			case "RUNNING":
+				styledText = statusRunning.Render(text)
+			case "IDLE":
+				styledText = statusIdle.Render(text)
+			case "WAITING":
+				styledText = statusWaiting.Render(text)
+			case "DONE":
+				styledText = statusDone.Render(text)
+			default:
+				styledText = text
+			}
+
+			// フィルタ中のステータスにはマーカーを付ける
+			prefix := " "
+			if m.statusFilter == status {
+				prefix = "*"
+			}
+
+			line := prefix + styledText
+
+			// Statusパネルがフォーカスされている場合は選択をハイライト
+			if m.focusedPanel == 1 && i == m.statusSelected {
+				paddedLine := line
+				lineWidth := lipgloss.Width(line)
+				innerWidth := width - 2
+				if lineWidth < innerWidth {
+					paddedLine = line + strings.Repeat(" ", innerWidth-lineWidth)
+				}
+				line = selectedStyle.Render(paddedLine)
+			}
+
+			content = append(content, line)
+		}
 	}
 
-	return drawBox("Status", content, width, height, gray)
+	// ボーダー色を選択（フォーカスされている場合はcyan、そうでなければgray）
+	borderColor := gray
+	if m.focusedPanel == 1 {
+		borderColor = cyan
+	}
+
+	return drawBox("Status", content, width, height, borderColor)
 }
 
 func (m model) renderOutputPanel(width, height int) string {
+	// フィルタ済みセッションを取得
+	filtered := m.filteredSessions()
+
 	// ボックス内のコンテンツを作成
 	var content []string
 
-	if len(m.sessions) == 0 || m.selected >= len(m.sessions) {
+	if len(filtered) == 0 || m.selected >= len(filtered) {
 		content = append(content, helpDescStyle.Render(" (no output)"))
 	} else {
-		logs := m.sessions[m.selected].Lines
+		logs := filtered[m.selected].Lines
 		if len(logs) == 0 {
 			content = append(content, helpDescStyle.Render(" (empty)"))
 		} else {
@@ -487,11 +626,22 @@ func (m model) renderHelp(width int) string {
 	}
 
 	// 通常モードのヘルプ
-	items := []string{
-		helpKeyStyle.Render("↑↓/jk") + helpDescStyle.Render(": navigate"),
-		helpKeyStyle.Render("enter") + helpDescStyle.Render(": focus"),
-		helpKeyStyle.Render("r") + helpDescStyle.Render(": rename"),
-		helpKeyStyle.Render("q") + helpDescStyle.Render(": quit"),
+	var items []string
+	if m.focusedPanel == 0 {
+		items = []string{
+			helpKeyStyle.Render("↑↓") + helpDescStyle.Render(": nav"),
+			helpKeyStyle.Render("enter") + helpDescStyle.Render(": focus"),
+			helpKeyStyle.Render("r") + helpDescStyle.Render(": rename"),
+			helpKeyStyle.Render("tab") + helpDescStyle.Render(": filter"),
+			helpKeyStyle.Render("q") + helpDescStyle.Render(": quit"),
+		}
+	} else {
+		items = []string{
+			helpKeyStyle.Render("↑↓") + helpDescStyle.Render(": nav"),
+			helpKeyStyle.Render("enter") + helpDescStyle.Render(": select"),
+			helpKeyStyle.Render("esc") + helpDescStyle.Render(": back"),
+			helpKeyStyle.Render("q") + helpDescStyle.Render(": quit"),
+		}
 	}
 
 	help := strings.Join(items, "  ")
