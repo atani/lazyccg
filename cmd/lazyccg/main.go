@@ -348,11 +348,35 @@ func (m model) renderSessionsPanel(width, innerHeight int) string {
 		tabCount[s.TabID]++
 	}
 
+	// ステータス集計
+	statusCount := make(map[string]int)
+	for _, s := range m.sessions {
+		statusCount[s.Status]++
+	}
+
 	// コンテンツを作成
 	var lines []string
 	if len(m.sessions) == 0 {
 		lines = append(lines, helpDescStyle.Render("  (no sessions)"))
 	} else {
+		// ステータス集計行を追加
+		var summaryParts []string
+		if c := statusCount["RUNNING"]; c > 0 {
+			summaryParts = append(summaryParts, statusRunning.Render(fmt.Sprintf("RUNNING: %d", c)))
+		}
+		if c := statusCount["IDLE"]; c > 0 {
+			summaryParts = append(summaryParts, statusIdle.Render(fmt.Sprintf("IDLE: %d", c)))
+		}
+		if c := statusCount["WAITING"]; c > 0 {
+			summaryParts = append(summaryParts, statusWaiting.Render(fmt.Sprintf("WAITING: %d", c)))
+		}
+		if c := statusCount["DONE"]; c > 0 {
+			summaryParts = append(summaryParts, statusDone.Render(fmt.Sprintf("DONE: %d", c)))
+		}
+		if len(summaryParts) > 0 {
+			lines = append(lines, " "+strings.Join(summaryParts, "  "))
+			lines = append(lines, "") // 空行
+		}
 		for i, s := range m.sessions {
 			name := s.Title
 			if name == "" {
