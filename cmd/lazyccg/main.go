@@ -809,10 +809,19 @@ func inferStatus(lines []string) string {
 	lastLineLower := strings.ToLower(lastLine)
 
 	recentLines := lines
-	if len(lines) > 5 {
-		recentLines = lines[len(lines)-5:]
+	if len(lines) > 10 {
+		recentLines = lines[len(lines)-10:]
 	}
 	recentText := strings.ToLower(strings.Join(recentLines, " "))
+
+	// Check if actively working first (takes priority)
+	if strings.Contains(recentText, "thinking") ||
+		strings.Contains(recentText, "twisting") ||
+		strings.Contains(recentText, "calculating") {
+		return "RUNNING"
+	}
+
+	// Prompt waiting patterns
 	if lastLine == ">" || lastLine == ">>" ||
 		strings.HasPrefix(lastLine, "> ") ||
 		strings.HasPrefix(lastLine, "$ ") ||
@@ -825,12 +834,10 @@ func inferStatus(lines []string) string {
 		return "IDLE"
 	}
 
-	// Check recent lines for Claude Code specific patterns (but not while actively working)
-	if !strings.Contains(recentText, "thinking") &&
-		!strings.Contains(recentText, "twisting") &&
-		(strings.Contains(recentText, "accept edits") ||
-			strings.Contains(recentText, "crunched for") ||
-			strings.Contains(recentText, "brewed for")) {
+	// Claude Code completion patterns
+	if strings.Contains(recentText, "accept edits") ||
+		strings.Contains(recentText, "crunched for") ||
+		strings.Contains(recentText, "brewed for") {
 		return "IDLE"
 	}
 
