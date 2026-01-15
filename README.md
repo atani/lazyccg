@@ -53,6 +53,8 @@ lazyccg
 | `-prefixes` | AI tool prefixes to detect | `codex,claude,gemini` |
 | `-max-lines` | Max lines to keep per session | `200` |
 | `-debug` | Dump debug info and exit | `false` |
+| `-no-alt-screen` | Run without alt screen (for debugging) | `false` |
+| `-kitty-socket` | Kitty socket path (e.g., `unix:/tmp/mykitty`) | auto-detect |
 
 ### Keybindings
 
@@ -60,8 +62,10 @@ lazyccg
 |-----|--------|
 | `↑` / `k` | Move up |
 | `↓` / `j` | Move down |
-| `Enter` | Focus selected session |
+| `Enter` | Focus selected session / Select filter |
 | `r` | Rename session |
+| `Tab` | Switch to Status panel (filter) |
+| `Esc` | Clear filter / Back to Sessions |
 | `q` | Quit |
 
 ## Screenshot

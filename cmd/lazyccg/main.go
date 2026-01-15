@@ -62,7 +62,8 @@ type model struct {
 	focusedPanel   int    // 0=Sessions, 1=Status
 	statusFilter   string // "" = no filter
 	statusSelected int
-	prevHashes     map[int]string // windowID -> previous output hash
+	prevHashes   map[int]string // windowID -> previous output hash
+	stableCount  map[int]int    // windowID -> consecutive unchanged polls
 }
 
 type tickMsg time.Time
@@ -134,10 +135,11 @@ func main() {
 	}
 
 	m := model{
-		pollEvery:  *pollEvery,
-		prefixes:   parsePrefixes(*prefixes),
-		maxLines:   *maxLines,
-		prevHashes: make(map[int]string),
+		pollEvery:   *pollEvery,
+		prefixes:    parsePrefixes(*prefixes),
+		maxLines:    *maxLines,
+		prevHashes:  make(map[int]string),
+		stableCount: make(map[int]int),
 	}
 
 	var p *tea.Program
@@ -193,7 +195,7 @@ func runDebug(prefixes []string, maxLines int) {
 	fmt.Println()
 
 	// Load sessions
-	sessions, _, err := loadSessions(prefixes, maxLines, make(map[int]string))
+	sessions, _, _, err := loadSessions(prefixes, maxLines, make(map[int]string), make(map[int]int))
 	if err != nil {
 		fmt.Println("loadSessions error:", err)
 	} else {
@@ -314,6 +316,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionsMsg:
 		m.sessions = msg.sessions
 		m.prevHashes = msg.hashes
+		m.stableCount = msg.stableCounts
 		if m.selected >= len(m.sessions) {
 			m.selected = len(m.sessions) - 1
 			if m.selected < 0 {
@@ -581,18 +584,20 @@ func (m model) renderHelp(width int) string {
 }
 
 type sessionsMsg struct {
-	sessions []session
-	hashes   map[int]string
+	sessions    []session
+	hashes      map[int]string
+	stableCounts map[int]int
 }
 
 func (m model) refreshCmd() tea.Cmd {
 	prevHashes := m.prevHashes
+	stableCount := m.stableCount
 	return func() tea.Msg {
-		sessions, hashes, err := loadSessions(m.prefixes, m.maxLines, prevHashes)
+		sessions, hashes, counts, err := loadSessions(m.prefixes, m.maxLines, prevHashes, stableCount)
 		if err != nil {
 			return err
 		}
-		return sessionsMsg{sessions: sessions, hashes: hashes}
+		return sessionsMsg{sessions: sessions, hashes: hashes, stableCounts: counts}
 	}
 }
 
@@ -638,7 +643,7 @@ func renameCmd(windowID int, title string) tea.Cmd {
 
 var debugLog *os.File
 
-func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([]session, map[int]string, error) {
+func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string, prevStable map[int]int) ([]session, map[int]string, map[int]int, error) {
 	if debugLog != nil {
 		fmt.Fprintf(debugLog, "[%s] loadSessions called, prefixes=%v\n", time.Now().Format("15:04:05"), prefixes)
 	}
@@ -648,7 +653,7 @@ func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([
 		if debugLog != nil {
 			fmt.Fprintf(debugLog, "[%s] kittyList error: %v\n", time.Now().Format("15:04:05"), err)
 		}
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if debugLog != nil {
@@ -656,6 +661,7 @@ func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([
 	}
 
 	newHashes := make(map[int]string)
+	newStable := make(map[int]int)
 	var sessions []session
 	for _, ow := range osWindows {
 		for _, tab := range ow.Tabs {
@@ -679,18 +685,30 @@ func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([
 				currentHash := strings.Join(hashLines, "\n")
 				newHashes[win.ID] = currentHash
 
+				// Track stable (unchanged) count
+				prevHash := prevHashes[win.ID]
+				if currentHash == prevHash {
+					newStable[win.ID] = prevStable[win.ID] + 1
+				} else {
+					newStable[win.ID] = 0
+				}
+
 				// Determine status
 				var status string
-				prevHash, hasPrev := prevHashes[win.ID]
-				outputChanged := hasPrev && currentHash != prevHash
-
-				// Check for real-time RUNNING indicator
 				recentText := strings.ToLower(strings.Join(hashLines, " "))
 				hasActiveIndicator := strings.Contains(recentText, "ctrl+c to interrupt")
 
-				if outputChanged || hasActiveIndicator {
+				if hasActiveIndicator {
+					// Real-time indicator takes priority
+					status = "RUNNING"
+				} else if newStable[win.ID] >= 2 {
+					// Output stable for 2+ polls -> use text-based detection
+					status = inferStatus(lines)
+				} else if prevHash != "" && currentHash != prevHash {
+					// Output just changed -> RUNNING
 					status = "RUNNING"
 				} else {
+					// First poll or transitioning -> use text-based detection
 					status = inferStatus(lines)
 				}
 
@@ -720,7 +738,7 @@ func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string) ([
 		fmt.Fprintf(debugLog, "[%s] returning %d sessions\n", time.Now().Format("15:04:05"), len(sessions))
 	}
 
-	return sortSessions(sessions), newHashes, nil
+	return sortSessions(sessions), newHashes, newStable, nil
 }
 
 func sortSessions(sessions []session) []session {
