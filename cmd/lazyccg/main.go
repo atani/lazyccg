@@ -28,11 +28,11 @@ var (
 
 	// ボーダースタイル
 	borderStyle = lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(gray)
 
 	activeBorderStyle = lipgloss.NewStyle().
-				BorderStyle(lipgloss.RoundedBorder()).
+				Border(lipgloss.RoundedBorder()).
 				BorderForeground(cyan)
 
 	// タイトルスタイル
