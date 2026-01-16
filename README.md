@@ -18,11 +18,20 @@ A lightweight TUI dashboard for monitoring Claude Code / Codex / Gemini sessions
 
 ## Installation
 
+### Homebrew (macOS)
+
+```bash
+brew tap atani/tap
+brew install lazyccg
+```
+
+### Go Install
+
 ```bash
 go install github.com/atani/lazyccg/cmd/lazyccg@latest
 ```
 
-Or build from source:
+### Build from Source
 
 ```bash
 git clone https://github.com/atani/lazyccg.git
