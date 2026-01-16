@@ -674,7 +674,14 @@ func loadSessions(prefixes []string, maxLines int, prevHashes map[int]string, pr
 				if !ok {
 					continue
 				}
-				text, _ := kittyGetText(win.ID)
+				text, err := kittyGetText(win.ID)
+				if err != nil {
+					if debugLog != nil {
+						fmt.Fprintf(debugLog, "[%s] kittyGetText error win=%d: %v\n",
+							time.Now().Format("15:04:05"), win.ID, err)
+					}
+					continue
+				}
 				lines := normalizeLines(text, maxLines)
 
 				// Compute hash from last few lines
@@ -769,9 +776,9 @@ func extractAI(win kittyWindow, prefixes []string) (string, bool) {
 				if baseLower == p {
 					return p, true
 				}
-				// Check if path contains the prefix as a component
+				// Check if path contains the prefix as a path component
 				// e.g., /path/to/@openai/codex/bin/codex
-				if strings.Contains(argLower, "/"+p+"/") || strings.Contains(argLower, "/"+p) {
+				if strings.Contains(argLower, "/"+p+"/") || strings.HasSuffix(argLower, "/"+p) {
 					return p, true
 				}
 			}
@@ -873,6 +880,21 @@ func inferStatus(lines []string) string {
 		strings.Contains(recentText, "confirm") ||
 		strings.Contains(recentText, "press enter") {
 		return "WAITING"
+	}
+
+	// DONE: explicit completion signals
+	if strings.Contains(recentText, "completed") ||
+		strings.Contains(recentText, "success") ||
+		strings.Contains(recentText, "task completed") {
+		return "DONE"
+	}
+
+	// RUNNING: explicit progress signals
+	if strings.Contains(recentText, "running") ||
+		strings.Contains(recentText, "processing") ||
+		strings.Contains(recentText, "executing") ||
+		strings.Contains(recentText, "reading files") {
+		return "RUNNING"
 	}
 
 	// IDLE: prompt waiting patterns
