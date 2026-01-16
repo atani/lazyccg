@@ -157,10 +157,16 @@ func main() {
 func runDebug(prefixes []string, maxLines int) {
 	fmt.Println("=== lazyccg debug ===")
 	fmt.Println("prefixes:", prefixes)
+	fmt.Println("kittySocketPath:", kittySocketPath)
 	fmt.Println()
 
-	// Get raw kitty output
-	cmd := exec.Command("kitty", "@", "ls")
+	// Get raw kitty output (use kittySocketPath like kittyList does)
+	args := []string{"@"}
+	if kittySocketPath != "" {
+		args = append(args, "--to", kittySocketPath)
+	}
+	args = append(args, "ls")
+	cmd := exec.Command("kitty", args...)
 	rawOut, err := cmd.Output()
 	if err != nil {
 		fmt.Println("kitty @ ls error:", err)
