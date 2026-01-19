@@ -93,6 +93,13 @@ type foregroundProcess struct {
 
 var debugMode bool
 
+// Version information (set by goreleaser ldflags)
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	pollEvery := flag.Duration("poll", 1*time.Second, "poll interval")
 	prefixes := flag.String("prefixes", "codex,claude,gemini", "comma-separated process names to detect")
@@ -100,7 +107,13 @@ func main() {
 	debug := flag.Bool("debug", false, "dump debug info and exit")
 	noAltScreen := flag.Bool("no-alt-screen", false, "run without alt screen (for debugging)")
 	kittySocket := flag.String("kitty-socket", "", "kitty socket path (e.g., unix:/tmp/mykitty)")
+	showVersion := flag.Bool("version", false, "show version information")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("lazyccg %s (commit: %s, built: %s)\n", version, commit, date)
+		os.Exit(0)
+	}
 
 	debugMode = *debug
 
