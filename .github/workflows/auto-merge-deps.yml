@@ -21,29 +21,35 @@ jobs:
           script: |
             const prs = context.payload.workflow_run.pull_requests;
             if (!prs || prs.length === 0) {
-              core.setFailed('No PR found for workflow_run');
+              core.setOutput('found', 'false');
               return;
             }
-            const pr = prs[0];
-            core.setOutput('url', pr.html_url);
-            core.setOutput('number', pr.number);
+            const prNumber = prs[0].number;
+            core.setOutput('found', 'true');
+            core.setOutput('number', prNumber);
 
-      - name: Ensure Dependabot PR
+      - name: Fetch PR
+        id: prinfo
+        if: steps.pr.outputs.found == 'true'
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = ${{ steps.pr.outputs.number }};
+            const prNumber = Number(process.env.PR_NUMBER);
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: prNumber,
             });
-            if (pr.user.login !== 'dependabot[bot]') {
-              core.setFailed(`Not a Dependabot PR: ${pr.user.login}`);
-            }
+            core.setOutput('is_dependabot', pr.user.login === 'dependabot[bot]');
+            core.setOutput('url', pr.html_url);
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
 
       - name: Enable auto-merge
-        run: gh pr merge --auto --squash "$PR_URL"
+        if: steps.prinfo.outputs.is_dependabot == 'true'
+        run: gh pr merge --auto --squash "$PR_NUMBER"
         env:
-          PR_URL: ${{ steps.pr.outputs.url }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
           GH_TOKEN: ${{ secrets.DEPENDABOT_AUTO_MERGE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
