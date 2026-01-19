@@ -1,0 +1,55 @@
+name: Auto-merge Dependabot PRs
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get PR
+        id: pr
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prs = context.payload.workflow_run.pull_requests;
+            if (!prs || prs.length === 0) {
+              core.setOutput('found', 'false');
+              return;
+            }
+            const prNumber = prs[0].number;
+            core.setOutput('found', 'true');
+            core.setOutput('number', prNumber);
+
+      - name: Fetch PR
+        id: prinfo
+        if: steps.pr.outputs.found == 'true'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const prNumber = Number(process.env.PR_NUMBER);
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            core.setOutput('is_dependabot', pr.user.login === 'dependabot[bot]');
+            core.setOutput('url', pr.html_url);
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+
+      - name: Enable auto-merge
+        if: steps.prinfo.outputs.is_dependabot == 'true'
+        run: gh pr merge --auto --squash "$PR_NUMBER"
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          GH_TOKEN: ${{ secrets.DEPENDABOT_AUTO_MERGE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
