@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/atani/lazyccg/compare/v0.2.0...v0.2.1) (2026-02-23)
+
+
+### Bug Fixes
+
+* add fetch-tags to checkout for tag creation ([#10](https://github.com/atani/lazyccg/issues/10)) ([8d94ba0](https://github.com/atani/lazyccg/commit/8d94ba03d9d8c56560c11933204ccd886d0cbe5d))
+
 ## [0.2.0](https://github.com/atani/lazyccg/compare/v0.1.0...v0.2.0) (2026-01-19)
 
 
